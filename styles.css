@@ -46,6 +46,8 @@ body { overscroll-behavior: none; }
   text-align: center;
 }
 
+.scale-name.is-major-minor { color: #fbb087; }
+
 .keyboard {
   position: relative;
   display: grid;

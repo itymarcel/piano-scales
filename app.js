@@ -77,7 +77,9 @@ function render() {
     ...notes.map((note, index) => ({ pitch: root.pitch + mode.steps[index], label: note.label })),
     { pitch: root.pitch + 12, label: notes[0].label }
   ];
-  document.getElementById('mode-name').textContent = mode.name;
+  const modeName = document.getElementById('mode-name');
+  modeName.textContent = mode.name;
+  modeName.classList.toggle('is-major-minor', modeIndex === 0 || modeIndex === 5);
   document.getElementById('key-name').textContent = root.name;
   document.title = `${root.name} ${mode.name} · Scales`;
 
