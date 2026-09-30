@@ -48,6 +48,38 @@ body { overscroll-behavior: none; }
 
 .scale-name.is-major-minor { color: #fbb087; }
 
+.mode-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.step-pattern {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.step {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.step.is-full { background: currentColor; }
+
+.step.is-root {
+  width: 6px;
+  height: 6px;
+  flex-basis: 6px;
+  border: 0;
+  background: currentColor;
+  opacity: .35;
+}
+
 .keyboard {
   position: relative;
   display: grid;

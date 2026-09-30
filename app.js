@@ -69,6 +69,25 @@ function makeKey(pitch, kind, scaleKeys, after) {
   return key;
 }
 
+function renderStepPattern(mode) {
+  const pattern = document.getElementById('step-pattern');
+  const intervals = mode.steps.map((step, index) => {
+    const nextStep = mode.steps[index + 1] ?? 12;
+    return nextStep - step;
+  });
+  const names = intervals.map(interval => interval === 1 ? 'half' : 'full');
+  pattern.setAttribute('aria-label', `Root; step pattern: ${names.join(', ')}`);
+  const root = document.createElement('span');
+  root.className = 'step is-root';
+  root.setAttribute('aria-hidden', 'true');
+  pattern.replaceChildren(root, ...intervals.map(interval => {
+    const step = document.createElement('span');
+    step.className = `step is-${interval === 1 ? 'half' : 'full'}`;
+    step.setAttribute('aria-hidden', 'true');
+    return step;
+  }));
+}
+
 function render() {
   const mode = modes[modeIndex];
   const root = chooseRoot(roots[rootIndex], mode);
@@ -80,6 +99,7 @@ function render() {
   const modeName = document.getElementById('mode-name');
   modeName.textContent = mode.name;
   modeName.classList.toggle('is-major-minor', modeIndex === 0 || modeIndex === 5);
+  renderStepPattern(mode);
   document.getElementById('key-name').textContent = root.name;
   document.title = `${root.name} ${mode.name} · Scales`;
 
