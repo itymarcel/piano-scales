@@ -21,6 +21,9 @@
     <main class="app" id="app" data-view="scales">
       <div class="views">
         <section class="view scales" id="scales-view" aria-label="Scale viewer">
+          <button class="play-button scale-play" id="scale-play" type="button" aria-label="Play scale">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect width="16" height="20" x="4" y="2" rx="2" /><path d="M12 6h.01" /><circle cx="12" cy="14" r="4" /><path d="M12 14h.01" /></svg>
+          </button>
           <div class="stage">
             <div class="scale-root" id="scale-root">C</div>
             <div class="chord-keys" id="scale-keyboard"></div>
@@ -60,7 +63,10 @@
           <div class="chord-keys" id="preview-keyboard"></div>
         </div>
         <div class="dock">
-          <div class="dock-row">
+          <div class="dock-row composer-add-row">
+            <button class="play-button composer-play" id="composer-play" type="button" aria-label="Play chord">
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect width="16" height="20" x="4" y="2" rx="2" /><path d="M12 6h.01" /><circle cx="12" cy="14" r="4" /><path d="M12 14h.01" /></svg>
+            </button>
             <button class="add-button" id="add-chord" type="button">
               <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true"><path d="M6.5 1.5v10M1.5 6.5h10" /></svg>
               Add

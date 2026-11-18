@@ -1,7 +1,8 @@
 import {
   ROOTS, MODES, QUALITIES, ALTERATIONS,
-  spell, spellScale, preferredRoot, chordName, chordNotes, degreesOf, isQuality, isAlteration
+  spell, spellScale, preferredRoot, chordName, chordNotes, keyNotes, degreesOf, isQuality, isAlteration
 } from './music.js';
+import { playSequence, playChord, stop as stopSound } from './audio.js';
 
 const SLOT_COUNT = 5;
 const MAX_CHORDS = 5;
@@ -19,6 +20,7 @@ const KEY_POSITION = new Map([
 const ICONS = {
   plus: '<svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true"><path d="M6.5 1.5v10M1.5 6.5h10"/></svg>',
   close: '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.25 1.25l7.5 7.5M8.75 1.25l-7.5 7.5"/></svg>',
+  speaker: '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M12 6h.01"/><circle cx="12" cy="14" r="4"/><path d="M12 14h.01"/></svg>',
   arrow: '<svg width="11" height="12" viewBox="0 0 11 12" aria-hidden="true"><path d="M5.5 1v10M1.5 7l4 4 4-4"/></svg>'
 };
 
@@ -134,18 +136,20 @@ function mountKeyboard(container) {
   keyboard.setAttribute('role', 'img');
   container.replaceChildren(keyboard, labels);
 
+  // Notes flagged `inKey` get a faint label only: context, not part of what's shown.
   return function update(notes, description) {
-    const active = new Set(notes.map(note => note.key));
+    const active = new Set(notes.filter(note => !note.inKey).map(note => note.key));
     for (const [pitch, key] of keys) key.classList.toggle('is-active', active.has(pitch));
     labels.replaceChildren(...notes.map(note => {
       const { index, black } = KEY_POSITION.get(note.key);
       const label = el('span', 'key-label', note.name);
       label.classList.toggle('on-black', black);
       label.classList.toggle('is-root', note.isRoot);
+      label.classList.toggle('in-key', Boolean(note.inKey));
       label.style.setProperty('--i', index);
       return label;
     }));
-    keyboard.setAttribute('aria-label', `${description}: ${notes.map(note => note.name).join(', ')}`);
+    keyboard.setAttribute('aria-label', `${description}: ${notes.filter(note => !note.inKey).map(note => note.name).join(', ')}`);
   };
 }
 
@@ -153,6 +157,30 @@ const describeChord = chord => {
   const notes = chordNotes(chord);
   return { name: chordName(chord), notes, spelled: notes.map(note => note.name).join(' ') };
 };
+
+/* ---------- Playback ---------- */
+
+// One sound at a time; its button glows until the sound has rung out.
+let playing = null;
+
+function endPlaying() {
+  if (!playing) return;
+  clearTimeout(playing.timer);
+  playing.button.classList.remove('is-playing');
+  playing = null;
+}
+
+/** Plays via `play` (which returns its length in ms); tapping the same button again stops it. */
+function togglePlay(button, play) {
+  const again = playing?.button === button;
+  endPlaying();
+  if (again) {
+    stopSound();
+    return;
+  }
+  button.classList.add('is-playing');
+  playing = { button, timer: setTimeout(endPlaying, play()) };
+}
 
 /* ---------- Views ---------- */
 
@@ -178,6 +206,8 @@ for (const option of segmentOptions) option.addEventListener('click', () => setV
 /* ---------- Scales ---------- */
 
 const updateScaleKeyboard = mountKeyboard($('scale-keyboard'));
+const scalePlay = $('scale-play');
+let scaleKeys = [];
 
 function renderSteps(mode) {
   const intervals = mode.steps.map((step, index) => (mode.steps[index + 1] ?? 12) - step);
@@ -199,6 +229,8 @@ function renderScale() {
   modeName.textContent = mode.name;
   modeName.classList.toggle('is-highlight', Boolean(mode.highlight));
   renderSteps(mode);
+  // Up the scale and back to the root an octave higher.
+  scaleKeys = [...notes.map(note => note.key), root.pitch + 12];
   updateScaleKeyboard(notes, `${root.name} ${mode.name}`);
   document.title = `${root.name} ${mode.name} · Scales`;
 }
@@ -209,6 +241,13 @@ function moveScale(which, amount) {
   saveState();
   renderScale();
 }
+
+const playScale = () => togglePlay(scalePlay, () => playSequence(scaleKeys));
+
+scalePlay.addEventListener('click', event => {
+  event.stopPropagation(); // the rest of the view changes the scale
+  playScale();
+});
 
 views.scales.addEventListener('click', event => {
   const bounds = views.scales.getBoundingClientRect();
@@ -228,6 +267,11 @@ document.addEventListener('keydown', event => {
     return;
   }
   if (state.view !== 'scales' || composer.classList.contains('is-open') || intro.classList.contains('is-open')) return;
+  if (event.key === ' ' && event.target === document.body) {
+    event.preventDefault();
+    playScale();
+    return;
+  }
   if (!ARROWS[event.key]) return;
   event.preventDefault();
   moveScale(...ARROWS[event.key]);
@@ -264,9 +308,14 @@ function makeCard(chord) {
   remove.dataset.remove = chord.id;
   remove.setAttribute('aria-label', `Remove ${name}`);
   remove.innerHTML = ICONS.close;
+  const play = el('button', 'play-button card-play');
+  play.type = 'button';
+  play.dataset.play = notes.map(note => note.key).join(' ');
+  play.setAttribute('aria-label', `Play ${name}`);
+  play.innerHTML = ICONS.speaker;
   const keys = el('div', 'chord-keys');
-  card.append(el('div', 'chord-title', name), keys, remove);
-  mountKeyboard(keys)(notes, name);
+  card.append(el('div', 'chord-title', name), keys, play, remove);
+  mountKeyboard(keys)([...notes, ...keyNotes(chord)], name);
   return card;
 }
 
@@ -355,6 +404,8 @@ slot.addEventListener('click', event => {
   if (!target) return;
   if ('add' in target.dataset) {
     openComposer(target);
+  } else if ('play' in target.dataset) {
+    togglePlay(target, () => playChord(target.dataset.play.split(' ').map(Number)));
   } else if ('remove' in target.dataset) {
     const chords = currentChords();
     chords.splice(chords.findIndex(chord => chord.id === target.dataset.remove), 1);
@@ -659,6 +710,11 @@ function closeComposer() {
 
 basedSwitch.addEventListener('click', () => setDraft('based', !draft.based));
 $('close-composer').addEventListener('click', closeComposer);
+
+const composerPlay = $('composer-play');
+composerPlay.addEventListener('click', () => {
+  togglePlay(composerPlay, () => playChord(chordNotes(draftChord()).map(note => note.key)));
+});
 
 addButton.addEventListener('click', () => {
   const chords = currentChords();

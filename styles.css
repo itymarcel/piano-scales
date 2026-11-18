@@ -211,6 +211,9 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
   white-space: nowrap;
 }
 
+/* Other notes of the chord's key, for context. */
+.key-label.in-key { color: var(--text-strong); opacity: .3; }
+
 .key-label.on-black { left: calc(var(--i) * var(--key-pitch) - var(--key-gap) / 2); }
 
 .key-label.is-root {
@@ -345,6 +348,50 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
 }
 
 .card-remove svg { stroke-width: 2.5; }
+
+/* ---------- Play buttons (speaker) ---------- */
+
+.play-button {
+  display: grid;
+  width: calc(var(--u) * 6);
+  height: calc(var(--u) * 6);
+  place-items: center;
+  color: var(--icon-muted);
+  /* Fades back slowly (twice the pop) when the sound ends or is stopped… */
+  transition: color calc(var(--pop-ms) * 2) var(--ease-out);
+}
+
+.play-button svg { stroke-width: 2; }
+
+.play-button.is-playing {
+  color: var(--accent);
+  transition-duration: var(--pop-ms); /* …and lights up at the usual pop. */
+}
+
+/* Top centre of the scale view, level with the first card in progression. */
+.scale-play {
+  position: absolute;
+  top: calc(var(--safe-top) + var(--u) * 4);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Centred just above the Add button. */
+.composer-add-row { position: relative; }
+
+.composer-play {
+  position: absolute;
+  bottom: calc(100% + var(--u) * 4);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Sits just left of the remove button. */
+.card-play {
+  position: absolute;
+  top: calc(var(--u) * 1.6);
+  right: calc(50% - var(--keyboard-w) / 2 + var(--u) * 4);
+}
 
 .add-card {
   display: grid;

@@ -167,6 +167,20 @@ function keyOf(base) {
   return { family, scale: spellScale(base.root, MODES[mode]) };
 }
 
+/**
+ * The rest of the chord's key (the scale it's heard as I in): scale notes that
+ * aren't chord tones, placed in the same octave as chordNotes.
+ */
+export function keyNotes(chord) {
+  const tones = new Set(chordNotes(chord).map(note => note.key));
+  return keyOf(chord).scale
+    .map(note => ({ ...note, key: chord.root.pitch + mod(note.pitch - chord.root.pitch, 12), isRoot: false, inKey: true }))
+    // Skip chord tones, and white/black neighbours of one: their labels would touch.
+    .filter(({ key }) => !tones.has(key) && ![key - 1, key + 1].some(next => tones.has(next) && (isBlack(key) || isBlack(next))));
+}
+
+const isBlack = key => [1, 3, 6, 8, 10].includes(mod(key, 12));
+
 /** The chord built in thirds on `degree` of `scale`, as a triad (3) or seventh (4). */
 function stacked(scale, degree, size) {
   const root = scale[degree];
