@@ -296,12 +296,14 @@ function createItem({ key, make }) {
   return node;
 }
 
-// Y-zoom plus a height/gap collapse, so neighbours glide instead of jumping.
+// Y-zoom and fade from the top edge. A negative bottom margin (the item's height plus
+// the gap) pulls everything below up in step, so neighbours glide with it.
+// Height isn't animated: border-box padding would stop it short of 0 and jump.
 function zoomFrames(node) {
-  const gap = parseFloat(getComputedStyle(slot).rowGap) || 0;
+  const space = node.offsetHeight + (parseFloat(getComputedStyle(slot).rowGap) || 0);
   return [
-    { height: '0px', marginBottom: `${-gap}px`, transform: 'scaleY(0)' },
-    { height: `${node.offsetHeight}px`, marginBottom: '0px', transform: 'scaleY(1)' }
+    { marginBottom: `${-space}px`, transform: 'scaleY(0)', opacity: 0 },
+    { marginBottom: '0px', transform: 'scaleY(1)', opacity: 1 }
   ];
 }
 

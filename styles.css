@@ -37,8 +37,8 @@
   --keyboard-h: calc(var(--white-h) + var(--black-rise));
 
   /* ---- Type ---- */
-  --fs-xs: 10px;
-  --fs-s: 11px;
+  --fs-xs: 11px;       /* was 10px */
+  --fs-s: 12px;        /* was 11px */
   --fs-mode: 32px;
   --fs-root: 38px;
 
@@ -278,7 +278,7 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
 .step {
   width: calc(var(--u) * 1.4);
   height: calc(var(--u) * 1.4);
-  border: var(--nudge) solid currentColor;
+  border: var(--hairline) solid currentColor;
   border-radius: 50%;
 }
 
@@ -317,8 +317,8 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
   flex: none;
   width: var(--content);
   height: calc(var(--u) * 28);
-  overflow: hidden;
   border-radius: var(--radius-l);
+  transform-origin: 50% 0;
 }
 
 .card {
@@ -357,9 +357,9 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
 
 .slot-hint {
   flex: none;
-  overflow: hidden;
   margin: 0;
   padding-top: calc(var(--u) * 2.4);
+  transform-origin: 50% 0;
   color: var(--text-hint);
   font-size: var(--fs-xs);
   line-height: calc(var(--u) * 2.8);
