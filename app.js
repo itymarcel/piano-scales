@@ -1,146 +1,709 @@
-const roots = [
-  { name: 'C', pitch: 0 }, { name: 'D♭', alternate: 'C♯', pitch: 1 },
-  { name: 'D', pitch: 2 }, { name: 'E♭', alternate: 'D♯', pitch: 3 },
-  { name: 'E', pitch: 4 }, { name: 'F', pitch: 5 },
-  { name: 'G♭', alternate: 'F♯', pitch: 6 }, { name: 'G', pitch: 7 },
-  { name: 'A♭', alternate: 'G♯', pitch: 8 }, { name: 'A', pitch: 9 },
-  { name: 'B♭', alternate: 'A♯', pitch: 10 }, { name: 'B', pitch: 11 }
-];
+import {
+  ROOTS, MODES, QUALITIES, ALTERATIONS,
+  spell, spellScale, preferredRoot, chordName, chordNotes, degreesOf, isQuality, isAlteration
+} from './music.js';
 
-const modes = [
-  { name: 'Major · Ionian', steps: [0, 2, 4, 5, 7, 9, 11] },
-  { name: 'Dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
-  { name: 'Phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
-  { name: 'Lydian', steps: [0, 2, 4, 6, 7, 9, 11] },
-  { name: 'Mixolydian', steps: [0, 2, 4, 5, 7, 9, 10] },
-  { name: 'Minor · Aeolian', steps: [0, 2, 3, 5, 7, 8, 10] },
-  { name: 'Locrian', steps: [0, 1, 3, 5, 6, 8, 10] }
-];
+const SLOT_COUNT = 5;
+const MAX_CHORDS = 5;
+const STORAGE_KEY = 'piano-scales:v2';
 
-const naturalPitches = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-const letters = Object.keys(naturalPitches);
-const whiteKeys = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24];
-const blackKeys = [
-  { pitch: 1, after: 1 }, { pitch: 3, after: 2 },
-  { pitch: 6, after: 4 }, { pitch: 8, after: 5 },
-  { pitch: 10, after: 6 }, { pitch: 13, after: 8 },
-  { pitch: 15, after: 9 }, { pitch: 18, after: 11 },
-  { pitch: 20, after: 12 }, { pitch: 22, after: 13 }
-];
+const WHITE_KEYS = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23];
+// [pitch, index of the white-key gap the black key sits on]
+const BLACK_KEYS = [[1, 1], [3, 2], [6, 4], [8, 5], [10, 6], [13, 8], [15, 9], [18, 11], [20, 12], [22, 13]];
+// Where each key sits, in key-pitch units; the CSS turns this into pixels.
+const KEY_POSITION = new Map([
+  ...WHITE_KEYS.map((pitch, index) => [pitch, { index, black: false }]),
+  ...BLACK_KEYS.map(([pitch, gap]) => [pitch, { index: gap, black: true }])
+]);
 
-function savedIndex(name, limit) {
+const ICONS = {
+  plus: '<svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true"><path d="M6.5 1.5v10M1.5 6.5h10"/></svg>',
+  close: '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.25 1.25l7.5 7.5M8.75 1.25l-7.5 7.5"/></svg>',
+  arrow: '<svg width="11" height="12" viewBox="0 0 11 12" aria-hidden="true"><path d="M5.5 1v10M1.5 7l4 4 4-4"/></svg>'
+};
+
+const $ = id => document.getElementById(id);
+
+/* ---------- Motion tokens (defined once, in styles.css) ---------- */
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const motion = {
+  easeOut: css('--ease-out'),
+  // The outgoing half of a slot change: a quick cubic, so it doesn't linger at the edge.
+  exit: css('--ease-out-cubic'),
+  // Read on use so the reduced-motion media query (which zeroes them) is respected live.
+  ms: name => parseFloat(css(name)) || 0
+};
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/* ---------- State ---------- */
+
+// Session-only keys so list rendering can tell chords apart; never persisted.
+let lastChordId = 0;
+const withId = chord => ({ ...chord, id: `chord-${++lastChordId}` });
+
+const state = loadState();
+const draft = {
+  based: false,
+  root: 0,
+  quality: 'maj',
+  alteration: 'none',
+  degree: 1,
+  variation: 0 // index into the chosen degree's variations; 0 is Diatonic
+};
+
+function inRange(value, limit) {
+  return Number.isInteger(value) && value >= 0 && value < limit;
+}
+
+function reviveChord(raw) {
+  if (!raw || !inRange(raw.letter, 7) || !inRange(raw.pitch, 12)) return null;
+  if (!isQuality(raw.quality) || !isAlteration(raw.alteration)) return null;
+  return withId({ root: spell(raw.letter, raw.pitch), quality: raw.quality, alteration: raw.alteration });
+}
+
+function loadState() {
+  const fallback = {
+    view: 'scales', root: 0, mode: 0, slot: 0, introDismissed: false,
+    slots: Array.from({ length: SLOT_COUNT }, () => [])
+  };
   try {
-    const value = Number(localStorage.getItem(name));
-    return Number.isInteger(value) && value >= 0 && value < limit ? value : 0;
-  } catch { return 0; }
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (!saved) {
+      // Carry over the position from the scales-only version of the app.
+      const root = Number(localStorage.getItem('scale-root'));
+      const mode = Number(localStorage.getItem('scale-mode'));
+      return { ...fallback, root: inRange(root, 12) ? root : 0, mode: inRange(mode, MODES.length) ? mode : 0 };
+    }
+    return {
+      view: saved.view === 'progression' ? 'progression' : 'scales',
+      root: inRange(saved.root, ROOTS.length) ? saved.root : 0,
+      mode: inRange(saved.mode, MODES.length) ? saved.mode : 0,
+      slot: inRange(saved.slot, SLOT_COUNT) ? saved.slot : 0,
+      introDismissed: saved.introDismissed === true,
+      slots: fallback.slots.map((_, index) =>
+        (Array.isArray(saved.slots?.[index]) ? saved.slots[index] : [])
+          .map(reviveChord).filter(Boolean).slice(0, MAX_CHORDS))
+    };
+  } catch {
+    return fallback;
+  }
 }
 
-let rootIndex = savedIndex('scale-root', roots.length);
-let modeIndex = savedIndex('scale-mode', modes.length);
-
-function spellNotes(root, mode) {
-  const firstLetter = letters.indexOf(root.name[0]);
-  return mode.steps.map((step, index) => {
-    const letter = letters[(firstLetter + index) % 7];
-    const pitch = (root.pitch + step) % 12;
-    const difference = (pitch - naturalPitches[letter] + 12) % 12;
-    const accidental = difference === 1 ? '♯' : difference === 11 ? '♭' : difference === 2 ? '𝄪' : difference === 10 ? '𝄫' : '';
-    return { pitch, label: letter + accidental };
-  });
+function saveState() {
+  const slots = state.slots.map(chords => chords.map(({ root, quality, alteration }) =>
+    ({ letter: root.letter, pitch: root.pitch, quality, alteration })));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, slots }));
+  } catch { /* The app works without storage. */ }
 }
 
-function chooseRoot(root, mode) {
-  if (!root.alternate) return root;
-  const score = name => spellNotes({ ...root, name }, mode).reduce((total, note) => {
-    return total + (note.label.includes('𝄪') || note.label.includes('𝄫') ? 4 : note.label.length > 1 ? 1 : 0);
-  }, 0);
-  return score(root.alternate) < score(root.name) ? { ...root, name: root.alternate } : root;
+const currentChords = () => state.slots[state.slot];
+
+/* ---------- Keyboard ---------- */
+
+const keyboardTemplate = (() => {
+  const keyboard = el('div', 'keyboard');
+  const whites = el('div', 'keyboard-whites');
+  for (const pitch of WHITE_KEYS) {
+    const key = el('div', 'key-white');
+    key.dataset.pitch = pitch;
+    whites.append(key);
+  }
+  keyboard.append(whites);
+  for (const [pitch, gap] of BLACK_KEYS) {
+    const key = el('div', 'key-black');
+    key.dataset.pitch = pitch;
+    key.style.setProperty('--i', gap);
+    keyboard.append(key);
+  }
+  return keyboard;
+})();
+
+/** Fills `container` with a keyboard and returns a function that highlights notes on it. */
+function mountKeyboard(container) {
+  const keyboard = keyboardTemplate.cloneNode(true);
+  const labels = el('div', 'key-labels');
+  const keys = new Map([...keyboard.querySelectorAll('[data-pitch]')].map(key => [Number(key.dataset.pitch), key]));
+  keyboard.setAttribute('role', 'img');
+  container.replaceChildren(keyboard, labels);
+
+  return function update(notes, description) {
+    const active = new Set(notes.map(note => note.key));
+    for (const [pitch, key] of keys) key.classList.toggle('is-active', active.has(pitch));
+    labels.replaceChildren(...notes.map(note => {
+      const { index, black } = KEY_POSITION.get(note.key);
+      const label = el('span', 'key-label', note.name);
+      label.classList.toggle('on-black', black);
+      label.classList.toggle('is-root', note.isRoot);
+      label.style.setProperty('--i', index);
+      return label;
+    }));
+    keyboard.setAttribute('aria-label', `${description}: ${notes.map(note => note.name).join(', ')}`);
+  };
 }
 
-function makeKey(pitch, kind, scaleKeys, after) {
-  const key = document.createElement('div');
-  key.className = `${kind}-key`;
-  if (scaleKeys.some(note => note.pitch === pitch)) key.classList.add('is-active');
-  if (kind === 'black') key.style.left = `${after / whiteKeys.length * 100}%`;
-  const label = document.createElement('span');
-  label.className = 'key-label';
-  label.textContent = scaleKeys.find(note => note.pitch === pitch)?.label || '';
-  key.append(label);
-  return key;
+const describeChord = chord => {
+  const notes = chordNotes(chord);
+  return { name: chordName(chord), notes, spelled: notes.map(note => note.name).join(' ') };
+};
+
+/* ---------- Views ---------- */
+
+const app = $('app');
+const views = { scales: $('scales-view'), progression: $('progression-view') };
+const segmentOptions = [...document.querySelectorAll('.segmented-option')];
+
+function renderView() {
+  app.dataset.view = state.view;
+  for (const option of segmentOptions) option.setAttribute('aria-pressed', String(option.dataset.view === state.view));
+  for (const [name, view] of Object.entries(views)) view.inert = name !== state.view;
 }
 
-function renderStepPattern(mode) {
-  const pattern = document.getElementById('step-pattern');
-  const intervals = mode.steps.map((step, index) => {
-    const nextStep = mode.steps[index + 1] ?? 12;
-    return nextStep - step;
-  });
-  const names = intervals.map(interval => interval === 1 ? 'half' : 'full');
-  pattern.setAttribute('aria-label', `Root; step pattern: ${names.join(', ')}`);
-  const root = document.createElement('span');
-  root.className = 'step is-root';
-  root.setAttribute('aria-hidden', 'true');
-  pattern.replaceChildren(root, ...intervals.map(interval => {
-    const step = document.createElement('span');
-    step.className = `step is-${interval === 1 ? 'half' : 'full'}`;
-    step.setAttribute('aria-hidden', 'true');
-    return step;
+function setView(view) {
+  if (view === state.view) return;
+  state.view = view;
+  saveState();
+  renderView();
+}
+
+for (const option of segmentOptions) option.addEventListener('click', () => setView(option.dataset.view));
+
+/* ---------- Scales ---------- */
+
+const updateScaleKeyboard = mountKeyboard($('scale-keyboard'));
+
+function renderSteps(mode) {
+  const intervals = mode.steps.map((step, index) => (mode.steps[index + 1] ?? 12) - step);
+  const steps = $('steps');
+  steps.setAttribute('aria-label', `Root; step pattern: ${intervals.map(i => (i === 1 ? 'half' : 'full')).join(', ')}`);
+  steps.replaceChildren(el('span', 'step is-root'), ...intervals.map(i => el('span', `step is-${i === 1 ? 'half' : 'full'}`)));
+}
+
+function renderScale() {
+  const mode = MODES[state.mode];
+  const root = preferredRoot(ROOTS[state.root], mode);
+  const notes = spellScale(root, mode).map((note, index) => ({
+    ...note,
+    key: root.pitch + mode.steps[index],
+    isRoot: index === 0
   }));
+  $('scale-root').textContent = root.name;
+  const modeName = $('mode-name');
+  modeName.textContent = mode.name;
+  modeName.classList.toggle('is-highlight', Boolean(mode.highlight));
+  renderSteps(mode);
+  updateScaleKeyboard(notes, `${root.name} ${mode.name}`);
+  document.title = `${root.name} ${mode.name} · Scales`;
 }
 
-function render() {
-  const mode = modes[modeIndex];
-  const root = chooseRoot(roots[rootIndex], mode);
-  const notes = spellNotes(root, mode);
-  const scaleKeys = [
-    ...notes.map((note, index) => ({ pitch: root.pitch + mode.steps[index], label: note.label })),
-    { pitch: root.pitch + 12, label: notes[0].label }
-  ];
-  const modeName = document.getElementById('mode-name');
-  modeName.textContent = mode.name;
-  modeName.classList.toggle('is-major-minor', modeIndex === 0 || modeIndex === 5);
-  renderStepPattern(mode);
-  document.getElementById('key-name').textContent = root.name;
-  document.title = `${root.name} ${mode.name} · Scales`;
+function moveScale(which, amount) {
+  if (which === 'root') state.root = (state.root + amount + ROOTS.length) % ROOTS.length;
+  else state.mode = (state.mode + amount + MODES.length) % MODES.length;
+  saveState();
+  renderScale();
+}
 
-  const keyboard = document.getElementById('keyboard');
-  keyboard.setAttribute('aria-label', `${root.name} ${mode.name}: ${scaleKeys.map(note => note.label).join(', ')}`);
-  keyboard.replaceChildren(
-    ...whiteKeys.map(pitch => makeKey(pitch, 'white', scaleKeys)),
-    ...blackKeys.map(({ pitch, after }) => makeKey(pitch, 'black', scaleKeys, after))
+views.scales.addEventListener('click', event => {
+  const bounds = views.scales.getBoundingClientRect();
+  const vertical = (event.clientY - bounds.top) / bounds.height;
+  if (vertical < 1 / 3) moveScale('mode', -1);
+  else if (vertical > 2 / 3) moveScale('mode', 1);
+  else moveScale('root', event.clientX < bounds.left + bounds.width / 2 ? -1 : 1);
+});
+
+const ARROWS = { ArrowLeft: ['root', -1], ArrowRight: ['root', 1], ArrowUp: ['mode', -1], ArrowDown: ['mode', 1] };
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') {
+    if (intro.classList.contains('is-open')) closeIntro();
+    else if (openSelect) closeSelect();
+    else if (composer.classList.contains('is-open')) closeComposer();
+    return;
+  }
+  if (state.view !== 'scales' || composer.classList.contains('is-open') || intro.classList.contains('is-open')) return;
+  if (!ARROWS[event.key]) return;
+  event.preventDefault();
+  moveScale(...ARROWS[event.key]);
+});
+
+/* ---------- Progression slot ---------- */
+
+const pager = $('pager');
+const slot = $('slot');
+const progression = views.progression;
+
+const pagerButtons = Array.from({ length: SLOT_COUNT }, (_, index) => {
+  const button = el('button', 'pager-slot', String(index + 1));
+  button.type = 'button';
+  button.addEventListener('click', () => goToSlot(index));
+  return button;
+});
+pager.append(...pagerButtons);
+
+function renderPager() {
+  pagerButtons.forEach((button, index) => {
+    const count = state.slots[index].length;
+    button.classList.toggle('has-chords', count > 0);
+    button.setAttribute('aria-current', String(index === state.slot));
+    button.setAttribute('aria-label', `Slot ${index + 1}, ${count} chord${count === 1 ? '' : 's'}`);
+  });
+}
+
+function makeCard(chord) {
+  const { name, notes } = describeChord(chord);
+  const card = el('article', 'card');
+  const remove = el('button', 'card-remove');
+  remove.type = 'button';
+  remove.dataset.remove = chord.id;
+  remove.setAttribute('aria-label', `Remove ${name}`);
+  remove.innerHTML = ICONS.close;
+  const keys = el('div', 'chord-keys');
+  card.append(el('div', 'chord-title', name), keys, remove);
+  mountKeyboard(keys)(notes, name);
+  return card;
+}
+
+function makeAddCard() {
+  const add = el('button', 'add-card');
+  add.type = 'button';
+  add.dataset.add = '';
+  add.setAttribute('aria-label', 'Add chord');
+  add.innerHTML = ICONS.plus;
+  return add;
+}
+
+const makeHint = () => el('p', 'slot-hint', `Add up to ${MAX_CHORDS} chords per progression slot.`);
+
+/** What the slot should show, as keyed items so updates can animate per item. */
+function slotItems() {
+  const chords = currentChords();
+  const items = chords.map(chord => ({ key: chord.id, make: () => makeCard(chord) }));
+  if (chords.length < MAX_CHORDS) items.push({ key: 'add', make: makeAddCard });
+  if (chords.length === 0) items.push({ key: 'hint', make: makeHint });
+  return items;
+}
+
+function createItem({ key, make }) {
+  const node = make();
+  node.dataset.key = key;
+  return node;
+}
+
+// Y-zoom plus a height/gap collapse, so neighbours glide instead of jumping.
+function zoomFrames(node) {
+  const gap = parseFloat(getComputedStyle(slot).rowGap) || 0;
+  return [
+    { height: '0px', marginBottom: `${-gap}px`, transform: 'scaleY(0)' },
+    { height: `${node.offsetHeight}px`, marginBottom: '0px', transform: 'scaleY(1)' }
+  ];
+}
+
+function zoomIn(node, delay) {
+  node.animate(zoomFrames(node), { duration: motion.ms('--zoom-ms'), delay, easing: motion.easeOut, fill: 'backwards' });
+}
+
+function zoomOut(node, delay) {
+  node.classList.add('is-leaving');
+  node.inert = true;
+  const animation = node.animate(zoomFrames(node).reverse(), {
+    duration: motion.ms('--zoom-ms'), delay, easing: motion.easeOut, fill: 'forwards'
+  });
+  animation.onfinish = () => node.remove();
+}
+
+/**
+ * Syncs the slot's DOM with state. With `animate`, only items that appear or
+ * disappear are touched (and zoomed); otherwise the slot is rebuilt.
+ */
+function renderSlot({ animate = false, delay = 0 } = {}) {
+  renderPager();
+  const items = slotItems();
+  if (!animate) {
+    slot.replaceChildren(...items.map(createItem));
+    return;
+  }
+
+  const current = new Map([...slot.children]
+    .filter(node => !node.classList.contains('is-leaving'))
+    .map(node => [node.dataset.key, node]));
+  const wanted = new Set(items.map(item => item.key));
+  for (const [key, node] of current) if (!wanted.has(key)) zoomOut(node, delay);
+
+  let previous = null;
+  for (const item of items) {
+    let node = current.get(item.key);
+    if (!node) {
+      node = createItem(item);
+      slot.insertBefore(node, previous ? previous.nextSibling : slot.firstChild);
+      zoomIn(node, delay);
+    }
+    previous = node;
+  }
+}
+
+slot.addEventListener('click', event => {
+  const target = event.target.closest('button');
+  if (!target) return;
+  if ('add' in target.dataset) {
+    openComposer(target);
+  } else if ('remove' in target.dataset) {
+    const chords = currentChords();
+    chords.splice(chords.findIndex(chord => chord.id === target.dataset.remove), 1);
+    saveState();
+    renderSlot({ animate: true });
+  }
+});
+
+/* ---------- Slot switching: pager taps and horizontal swipes ---------- */
+
+const SWIPE = { slop: 10, distance: .2, velocity: .4, resistance: .35 };
+let slideAnimation = null;
+
+const setSlotOffset = x => { slot.style.transform = x ? `translate3d(${x}px, 0, 0)` : ''; };
+
+function settleSlot(from) {
+  setSlotOffset(0);
+  if (from) slot.animate([{ transform: `translate3d(${from}px, 0, 0)` }, { transform: 'none' }],
+    { duration: motion.ms('--swipe-ms'), easing: motion.easeOut });
+}
+
+/** Slides the current slot out from `from` px and the target slot in from the opposite side. */
+function goToSlot(index, from = 0) {
+  if (index === state.slot || index < 0 || index >= SLOT_COUNT || slideAnimation) {
+    settleSlot(from);
+    return;
+  }
+  const direction = index > state.slot ? 1 : -1;
+  const width = progression.clientWidth;
+  const duration = motion.ms('--swipe-ms');
+  setSlotOffset(0);
+  slideAnimation = slot.animate(
+    [{ transform: `translate3d(${from}px, 0, 0)` }, { transform: `translate3d(${-direction * width}px, 0, 0)` }],
+    { duration: duration * .4, easing: motion.exit, fill: 'forwards' }
+  );
+  slideAnimation.onfinish = () => {
+    state.slot = index;
+    saveState();
+    renderSlot();
+    progression.scrollTop = 0;
+    slot.animate([{ transform: `translate3d(${direction * width}px, 0, 0)` }, { transform: 'none' }],
+      { duration, easing: motion.easeOut });
+    slideAnimation.cancel();
+    slideAnimation = null;
+  };
+}
+
+const swipe = { pointer: null, startX: 0, startY: 0, lastX: 0, lastT: 0, velocity: 0, dragging: false };
+
+progression.addEventListener('pointerdown', event => {
+  if (!event.isPrimary || event.button !== 0 || slideAnimation) return;
+  Object.assign(swipe, {
+    pointer: event.pointerId, startX: event.clientX, startY: event.clientY,
+    lastX: event.clientX, lastT: event.timeStamp, velocity: 0, dragging: false
+  });
+});
+
+progression.addEventListener('pointermove', event => {
+  if (event.pointerId !== swipe.pointer) return;
+  const dx = event.clientX - swipe.startX;
+  const dy = event.clientY - swipe.startY;
+  if (!swipe.dragging) {
+    if (Math.abs(dy) > SWIPE.slop && Math.abs(dy) > Math.abs(dx)) { swipe.pointer = null; return; }
+    if (Math.abs(dx) < SWIPE.slop) return;
+    swipe.dragging = true;
+    progression.setPointerCapture(event.pointerId);
+  }
+  const elapsed = event.timeStamp - swipe.lastT;
+  if (elapsed > 0) swipe.velocity = (event.clientX - swipe.lastX) / elapsed;
+  swipe.lastX = event.clientX;
+  swipe.lastT = event.timeStamp;
+  const target = state.slot + (dx < 0 ? 1 : -1);
+  setSlotOffset(target >= 0 && target < SLOT_COUNT ? dx : dx * SWIPE.resistance);
+});
+
+function endSwipe(event, cancelled) {
+  if (event.pointerId !== swipe.pointer) return;
+  swipe.pointer = null;
+  if (!swipe.dragging) return;
+  const offset = new DOMMatrixReadOnly(getComputedStyle(slot).transform).m41;
+  const dx = event.clientX - swipe.startX;
+  const flung = Math.abs(swipe.velocity) > SWIPE.velocity && Math.sign(swipe.velocity) === Math.sign(dx);
+  const far = Math.abs(dx) > progression.clientWidth * SWIPE.distance;
+  if (!cancelled && (flung || far)) goToSlot(state.slot + (dx < 0 ? 1 : -1), offset);
+  else settleSlot(offset);
+  swipe.dragging = false;
+  // A drag that ends over a button must not count as a tap on it. The click (if
+  // any) follows pointerup in the same task, so the guard only lives until then.
+  const swallow = click => click.stopPropagation();
+  window.addEventListener('click', swallow, { capture: true, once: true });
+  setTimeout(() => window.removeEventListener('click', swallow, { capture: true }));
+}
+
+progression.addEventListener('pointerup', event => endSwipe(event, false));
+progression.addEventListener('pointercancel', event => endSwipe(event, true));
+
+/* ---------- Select (dropdown) ---------- */
+
+let openSelect = null;
+
+function closeSelect() {
+  if (!openSelect) return;
+  openSelect.classList.remove('is-open');
+  openSelect.querySelector('.select-trigger').setAttribute('aria-expanded', 'false');
+  openSelect = null;
+}
+
+function toggleSelect(select) {
+  const wasOpen = select === openSelect;
+  closeSelect();
+  if (wasOpen) return;
+  select.classList.add('is-open');
+  select.querySelector('.select-trigger').setAttribute('aria-expanded', 'true');
+  select.querySelector('.select-menu').scrollTop = 0;
+  openSelect = select;
+}
+
+document.addEventListener('pointerdown', event => {
+  if (openSelect && !openSelect.contains(event.target)) closeSelect();
+});
+
+/**
+ * A labelled dropdown row. `options` are { value, content } where content is a
+ * Node or string; the selected option shows in the trigger and is left out of the menu.
+ */
+function field({ label, options, value, onChange }) {
+  const id = `field-${label.toLowerCase().replace(/\W/g, '')}`;
+  const row = el('div', 'field');
+  const labelNode = el('span', 'field-label', label);
+  labelNode.id = id;
+
+  const select = el('div', 'select');
+  const trigger = el('button', 'select-trigger');
+  trigger.type = 'button';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-labelledby', id);
+  const current = options.find(option => option.value === value) ?? options[0];
+  trigger.append(current.trigger ?? current.content);
+  trigger.insertAdjacentHTML('beforeend', ICONS.arrow);
+  trigger.addEventListener('click', () => toggleSelect(select));
+
+  const menu = el('div', 'select-menu');
+  menu.setAttribute('role', 'listbox');
+  menu.setAttribute('aria-labelledby', id);
+  for (const option of options) {
+    if (option === current) continue;
+    const item = el('button', 'select-option');
+    item.type = 'button';
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', 'false');
+    item.append(option.content);
+    item.addEventListener('click', () => {
+      closeSelect();
+      onChange(option.value);
+    });
+    menu.append(item);
+  }
+
+  select.append(trigger, menu);
+  row.append(labelNode, select);
+  return row;
+}
+
+function numeral(text) {
+  return el('span', 'numeral', text);
+}
+
+function chordDetail(chord) {
+  const { name, spelled } = describeChord(chord);
+  const detail = el('span', 'option-detail', `${name} - `);
+  detail.append(el('span', '', spelled));
+  return detail;
+}
+
+function variationLabel({ label, note }) {
+  const node = el('span', 'variation-label', label);
+  if (note) node.append(el('span', '', ` ${note}`));
+  return node;
+}
+
+/** Menu row: label on the left, "Name - notes" on the right. */
+function optionRow(left, chord) {
+  const fragment = document.createDocumentFragment();
+  fragment.append(left, chordDetail(chord));
+  return fragment;
+}
+
+/* ---------- Composer ---------- */
+
+const composer = $('composer');
+const fields = $('fields');
+const basedSwitch = $('based-switch');
+const addButton = $('add-chord');
+const updatePreview = mountKeyboard($('preview-keyboard'));
+let composerOpener = null;
+
+const baseChord = () => currentChords()[0] ?? null;
+
+function draftChord() {
+  const base = baseChord();
+  if (draft.based && base) {
+    const { variations } = degreesOf(base)[draft.degree];
+    return (variations[draft.variation] ?? variations[0]).chord;
+  }
+  return { root: ROOTS[draft.root], quality: draft.quality, alteration: draft.alteration };
+}
+
+function setDraft(key, value) {
+  draft[key] = value;
+  renderComposer();
+}
+
+function renderFields(base) {
+  if (draft.based && base) {
+    const degrees = degreesOf(base);
+    const { variations } = degrees[draft.degree];
+    fields.replaceChildren(
+      field({
+        label: 'Degree',
+        value: draft.degree,
+        options: degrees.map((degree, index) => ({
+          value: index,
+          trigger: numeral(degree.numeral),
+          content: optionRow(numeral(degree.numeral), degree.variations[0].chord)
+        })),
+        // Variations differ per degree, so a new degree starts from Diatonic.
+        onChange: value => { draft.variation = 0; setDraft('degree', value); }
+      }),
+      field({
+        label: 'Variation',
+        value: Math.min(draft.variation, variations.length - 1),
+        options: variations.map((variation, index) => ({
+          value: index,
+          trigger: variationLabel(variation),
+          content: optionRow(variationLabel(variation), variation.chord)
+        })),
+        onChange: value => setDraft('variation', value)
+      })
+    );
+    return;
+  }
+  fields.replaceChildren(
+    field({
+      label: 'Root',
+      value: draft.root,
+      options: ROOTS.map((root, index) => ({ value: index, content: root.name })),
+      onChange: value => setDraft('root', value)
+    }),
+    field({
+      label: 'Quality',
+      value: draft.quality,
+      options: QUALITIES.map(({ id }) => ({ value: id, content: id })),
+      onChange: value => setDraft('quality', value)
+    }),
+    field({
+      label: 'Alt.',
+      value: draft.alteration,
+      options: ALTERATIONS.map(({ id }) => ({ value: id, content: id })),
+      onChange: value => setDraft('alteration', value)
+    })
   );
 }
 
-function move(which, amount) {
-  if (which === 'root') {
-    rootIndex = (rootIndex + amount + roots.length) % roots.length;
+function renderComposer() {
+  const base = baseChord();
+  const header = $('composer-base');
+  if (base) {
+    header.replaceChildren(chordName(base), ' ', el('span', '', 'as root'));
   } else {
-    modeIndex = (modeIndex + amount + modes.length) % modes.length;
+    header.replaceChildren(el('span', '', 'First chord'));
   }
-  try {
-    localStorage.setItem('scale-root', String(rootIndex));
-    localStorage.setItem('scale-mode', String(modeIndex));
-  } catch { /* The viewer works without storage. */ }
-  render();
+  basedSwitch.disabled = !base;
+  basedSwitch.setAttribute('aria-checked', String(draft.based && Boolean(base)));
+
+  closeSelect();
+  renderFields(base);
+
+  const { name, notes } = describeChord(draftChord());
+  $('preview-title').textContent = name;
+  updatePreview(notes, name);
+  addButton.disabled = currentChords().length >= MAX_CHORDS;
 }
 
-document.getElementById('app').addEventListener('click', event => {
-  const bounds = event.currentTarget.getBoundingClientRect();
-  const vertical = (event.clientY - bounds.top) / bounds.height;
-  if (vertical < 1 / 3) move('mode', -1);
-  else if (vertical > 2 / 3) move('mode', 1);
-  else move('root', event.clientX < bounds.left + bounds.width / 2 ? -1 : 1);
+function openComposer(opener) {
+  composerOpener = opener;
+  renderComposer();
+  composer.inert = false;
+  composer.classList.add('is-open');
+  views.progression.inert = true;
+}
+
+function closeComposer() {
+  closeSelect();
+  if (!composer.classList.contains('is-open')) return;
+  composer.classList.remove('is-open');
+  composer.inert = true;
+  renderView();
+  composerOpener?.focus({ preventScroll: true });
+  composerOpener = null;
+}
+
+basedSwitch.addEventListener('click', () => setDraft('based', !draft.based));
+$('close-composer').addEventListener('click', closeComposer);
+
+addButton.addEventListener('click', () => {
+  const chords = currentChords();
+  if (chords.length >= MAX_CHORDS) return;
+  chords.push(withId(draftChord()));
+  saveState();
+  closeComposer();
+  // Let the composer get mostly out of the way before the new card zooms in.
+  renderSlot({ animate: true, delay: motion.ms('--pop-ms') * .6 });
 });
 
-document.addEventListener('keydown', event => {
-  const directions = { ArrowLeft: ['root', -1], ArrowRight: ['root', 1], ArrowUp: ['mode', -1], ArrowDown: ['mode', 1] };
-  if (directions[event.key]) {
-    event.preventDefault();
-    move(...directions[event.key]);
-  }
+/* ---------- Intro (shown until closed once) ---------- */
+
+const intro = $('intro');
+
+function openIntro() {
+  intro.inert = false;
+  intro.classList.add('is-open');
+}
+
+function closeIntro() {
+  intro.classList.remove('is-open');
+  intro.inert = true;
+  state.introDismissed = true;
+  saveState();
+}
+
+$('intro-close').addEventListener('click', closeIntro);
+intro.addEventListener('click', event => {
+  if (event.target === intro) closeIntro();
 });
 
-render();
+/* ---------- Start ---------- */
+
+renderView();
+renderScale();
+renderSlot();
+
+// Enable transitions only after the first paint so the restored view doesn't animate in.
+app.classList.add('is-static');
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  app.classList.remove('is-static');
+  if (!state.introDismissed) openIntro();
+}));
+
+// Ask the browser not to evict saved progressions under storage pressure (notably iOS).
+navigator.storage?.persist?.().catch(() => {});
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));

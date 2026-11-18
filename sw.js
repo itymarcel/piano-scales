@@ -1,5 +1,5 @@
-const CACHE = 'piano-scales-v7';
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+const CACHE = 'piano-scales-v14';
+const ASSETS = ['./', './index.html', './styles.css', './app.js', './music.js', './fonts/inter-latin.woff2', './manifest.webmanifest', './icons/favicon-32.png', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));

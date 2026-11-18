@@ -1,8 +1,12 @@
 # Piano Scales
 
-A small mobile scale viewer. Tap the upper third to move to the previous mode, the lower third for the next mode, and the left or right side of the middle third to change key. Keyboard arrow keys work too.
+A small mobile scale and chord-progression viewer.
 
-The two-octave keyboard highlights one complete scale from root to octave root in orange, with note names on those keys. The seven diatonic modes follow this order: Major (Ionian), Dorian, Phrygian, Lydian, Mixolydian, Minor (Aeolian), Locrian.
+**Scales.** Tap the upper third to move to the previous mode, the lower third for the next mode, and the left or right side of the middle third to change key. Keyboard arrow keys work too. The two-octave keyboard highlights the scale in orange with note names below the keys. The seven diatonic modes follow this order: Major (Ionian), Dorian, Phrygian, Lydian, Mixolydian, Minor (Aeolian), Locrian.
+
+**Progression.** Five slots, each holding up to five chords. Add a chord manually (root, quality, alteration) or, once a slot has a chord, base it on the first chord: pick a degree (I–VII) and a variation, and the chord is built from the key that first chord implies. Everything is saved on the device.
+
+Code: `music.js` holds the theory (spelling, scales, chords, degrees), `app.js` the UI, `styles.css` the design tokens (all spacing derives from `--u: 5px`).
 
 Serve the folder with any static web server, for example:
 
