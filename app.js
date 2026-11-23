@@ -840,7 +840,7 @@ addButton.addEventListener('click', () => {
   renderSlot({ animate: true, delay: motion.ms('--pop-ms') * .6 });
 });
 
-/* ---------- Intro (shown until closed once) ---------- */
+/* ---------- Intro (shown until closed once; reopened from the help button) ---------- */
 
 const intro = $('intro');
 
@@ -857,6 +857,7 @@ function closeIntro() {
 }
 
 $('intro-close').addEventListener('click', closeIntro);
+$('help').addEventListener('click', openIntro);
 intro.addEventListener('click', event => {
   if (event.target === intro) closeIntro();
 });

@@ -490,6 +490,27 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
 
 .dock-row > * { pointer-events: auto; }
 
+/* The mode switch stays centred; the help button sits in the right-hand column. */
+.mode-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  column-gap: calc(var(--u) * 2);
+}
+
+.mode-row .segmented { grid-column: 2; }
+
+.help-button {
+  justify-self: start;
+  width: calc(var(--u) * 6);
+  height: calc(var(--u) * 6);
+  /* Lifts the glyph 1px, the same optical nudge as the segmented labels. */
+  padding-bottom: var(--nudge);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
 .pager {
   display: flex;
   gap: calc(var(--u) * 2.8);
@@ -854,6 +875,8 @@ svg.intro-icon {
   color: var(--sheet-icon);
   stroke-width: 1.25;
 }
+
+svg.intro-icon.is-speaker { stroke-width: 2; }
 
 /* Already installed: the add-to-home-screen tip doesn't apply. */
 @media (display-mode: standalone) {
