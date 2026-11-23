@@ -359,6 +359,9 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
   color: var(--icon-muted);
   /* Fades back slowly (twice the pop) when the sound ends or is stopped… */
   transition: color calc(var(--pop-ms) * 2) var(--ease-out);
+  /* Press and hold opens the notes/chord choice: keep the touch for us, no callout. */
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 .play-button svg { stroke-width: 2; }
@@ -392,6 +395,58 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
   top: calc(var(--u) * 1.6);
   right: calc(50% - var(--keyboard-w) / 2 + var(--u) * 4);
 }
+
+/* Held speaker: the saved play style, notes on the left, chord on the right; centred under the thumb. */
+.play-choice {
+  --pill-pad: calc(var(--nudge) + 1px);
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: calc(var(--u) * 21);
+  height: calc(var(--u) * 6);
+  padding: var(--pill-pad);
+  border: var(--hairline) solid var(--key-black-raised);
+  border-radius: calc(var(--u) * 3);
+  background: var(--pill);
+  color: var(--text-strong);
+  pointer-events: none;
+  translate: -50% -50%;
+  scale: .95;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--pop), scale var(--pop), visibility 0s var(--pop-ms);
+}
+
+.play-choice.is-open {
+  scale: 1;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--pop), scale var(--pop), visibility 0s;
+}
+
+.play-choice-thumb {
+  position: absolute;
+  top: var(--pill-pad);
+  bottom: var(--pill-pad);
+  left: var(--pill-pad);
+  width: calc(50% - var(--pill-pad));
+  border-radius: calc(var(--u) * 3);
+  background: var(--accent);
+  transition: transform var(--pop);
+}
+
+.play-choice[data-side="notes"] .play-choice-thumb { transform: translateX(100%); }
+
+.play-choice-side {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.play-choice svg { stroke-width: 2; stroke-linecap: butt; }
 
 .add-card {
   display: grid;

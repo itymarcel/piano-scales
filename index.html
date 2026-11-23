@@ -80,6 +80,17 @@
         </div>
       </section>
 
+      <!-- Press and hold a speaker to set how every speaker plays: left a chord, right notes one by one. -->
+      <div class="play-choice" id="play-choice" aria-hidden="true">
+        <span class="play-choice-thumb"></span>
+        <span class="play-choice-side" data-side="chord">
+          <svg width="9" height="11" viewBox="0 0 9 11"><path d="M0 1h9M0 5.5h9M0 10h9" /></svg>
+        </span>
+        <span class="play-choice-side" data-side="notes">
+          <svg width="16" height="11" viewBox="0 0 16 11"><path d="M8 1h8M4 5.5h8M0 10h8" /></svg>
+        </span>
+      </div>
+
       <section class="intro" id="intro" role="dialog" aria-modal="true" aria-labelledby="intro-title" inert>
         <div class="intro-card">
           <header class="intro-head">

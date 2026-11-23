@@ -72,7 +72,7 @@ function reviveChord(raw) {
 
 function loadState() {
   const fallback = {
-    view: 'scales', root: 0, mode: 0, slot: 0, introDismissed: false,
+    view: 'scales', root: 0, mode: 0, slot: 0, introDismissed: false, playStyle: 'notes',
     slots: Array.from({ length: SLOT_COUNT }, () => [])
   };
   try {
@@ -89,6 +89,7 @@ function loadState() {
       mode: inRange(saved.mode, MODES.length) ? saved.mode : 0,
       slot: inRange(saved.slot, SLOT_COUNT) ? saved.slot : 0,
       introDismissed: saved.introDismissed === true,
+      playStyle: saved.playStyle === 'chord' ? 'chord' : 'notes',
       slots: fallback.slots.map((_, index) =>
         (Array.isArray(saved.slots?.[index]) ? saved.slots[index] : [])
           .map(reviveChord).filter(Boolean).slice(0, MAX_CHORDS))
@@ -170,17 +171,137 @@ function endPlaying() {
   playing = null;
 }
 
-/** Plays via `play` (which returns its length in ms); tapping the same button again stops it. */
-function togglePlay(button, play) {
-  const again = playing?.button === button;
+/** Plays via `play` (which returns its length in ms), replacing whatever was sounding. */
+function startPlay(button, play) {
   endPlaying();
-  if (again) {
-    stopSound();
-    return;
-  }
   button.classList.add('is-playing');
   playing = { button, timer: setTimeout(endPlaying, play()) };
 }
+
+/** Like startPlay, but tapping the button that's sounding stops it instead. */
+function togglePlay(button, play) {
+  if (playing?.button === button) {
+    endPlaying();
+    stopSound();
+    return;
+  }
+  startPlay(button, play);
+}
+
+/** The keys a speaker plays. */
+function keysOf(button) {
+  if (button === scalePlay) return scaleKeys;
+  if (button === composerPlay) return chordNotes(draftChord()).map(note => note.key);
+  return button.dataset.play.split(' ').map(Number);
+}
+
+/** Every speaker plays in the saved style: one by one, upwards (default), or as a chord. */
+function tapPlay(button) {
+  const keys = keysOf(button);
+  togglePlay(button, () => (state.playStyle === 'chord' ? playChord(keys) : playSequence(keys)));
+}
+
+/** A drag or hold that ends over a button must not count as a tap on it. The click
+ *  (if any) follows pointerup in the same task, so the guard only lives until then. */
+function swallowClick() {
+  const swallow = click => click.stopPropagation();
+  window.addEventListener('click', swallow, { capture: true, once: true });
+  setTimeout(() => window.removeEventListener('click', swallow, { capture: true }));
+}
+
+/* ---------- Speaker hold: choose the play style (left chord, right notes) ---------- */
+
+// delay: ms before the choice opens; slop: movement (px) that cancels the hold before
+// that; dead: distance from the centre (px) before a side is picked.
+const HOLD = { delay: 350, slop: 10, dead: 8, margin: 10 };
+const choice = $('play-choice');
+const choiceThumb = choice.querySelector('.play-choice-thumb');
+let hold = null; // { pointer, x, y, timer, open, centre, side }
+
+function showSide(side) {
+  hold.side = side;
+  choice.dataset.side = side;
+}
+
+function openChoice() {
+  hold.open = true;
+  // Opens on the saved style; the thumb jumps there rather than sliding from last time.
+  choiceThumb.style.transition = 'none';
+  showSide(state.playStyle);
+  void choiceThumb.offsetWidth;
+  choiceThumb.style.transition = '';
+  // Centred on the press, kept on screen; the halves split at the popover's centre.
+  const halfW = choice.offsetWidth / 2 + HOLD.margin;
+  const halfH = choice.offsetHeight / 2 + HOLD.margin;
+  hold.centre = Math.min(Math.max(hold.x, halfW), innerWidth - halfW);
+  choice.style.left = `${hold.centre}px`;
+  choice.style.top = `${Math.min(Math.max(hold.y, halfH), innerHeight - halfH)}px`;
+  choice.classList.add('is-open');
+  // The progression may be tracking this pointer for a swipe; the hold owns it now.
+  if (swipe.pointer === hold.pointer) swipe.pointer = null;
+}
+
+function closeChoice() {
+  if (!hold) return;
+  clearTimeout(hold.timer);
+  if (hold.open) choice.classList.remove('is-open');
+  hold = null;
+}
+
+document.addEventListener('pointerdown', event => {
+  const button = event.target.closest?.('.play-button');
+  if (!button || hold || !event.isPrimary || event.button !== 0) return;
+  hold = {
+    pointer: event.pointerId, x: event.clientX, y: event.clientY,
+    timer: setTimeout(openChoice, HOLD.delay), open: false, centre: 0, side: null
+  };
+});
+
+// Capture phase on window, so while the choice is open nothing else sees the pointer.
+window.addEventListener('pointermove', event => {
+  if (event.pointerId !== hold?.pointer) return;
+  if (!hold.open) {
+    if (Math.hypot(event.clientX - hold.x, event.clientY - hold.y) > HOLD.slop) closeChoice();
+    return;
+  }
+  event.stopPropagation();
+  const dx = event.clientX - hold.centre;
+  if (Math.abs(dx) < HOLD.dead) return; // near the centre: keep the side shown
+  const side = dx < 0 ? 'chord' : 'notes';
+  if (side !== hold.side) showSide(side);
+}, true);
+
+/** Releasing saves the side shown as the play style; it doesn't play. */
+function endHold(event, cancelled) {
+  if (event.pointerId !== hold?.pointer) return;
+  const { open, side } = hold;
+  closeChoice();
+  if (!open) return; // released before the choice opened: an ordinary tap
+  event.stopPropagation();
+  swallowClick();
+  if (cancelled || side === state.playStyle) return;
+  state.playStyle = side;
+  saveState();
+}
+
+window.addEventListener('pointerup', event => endHold(event, false), true);
+window.addEventListener('pointercancel', event => endHold(event, true), true);
+
+// While open, other fingers and clicks do nothing.
+for (const type of ['pointerdown', 'click']) {
+  window.addEventListener(type, event => {
+    if (!hold?.open) return;
+    event.stopPropagation();
+    event.preventDefault();
+  }, true);
+}
+
+// No long-press menu on speakers.
+document.addEventListener('contextmenu', event => {
+  if (hold || event.target.closest?.('.play-button')) event.preventDefault();
+});
+
+window.addEventListener('blur', closeChoice);
 
 /* ---------- Views ---------- */
 
@@ -242,11 +363,9 @@ function moveScale(which, amount) {
   renderScale();
 }
 
-const playScale = () => togglePlay(scalePlay, () => playSequence(scaleKeys));
-
 scalePlay.addEventListener('click', event => {
   event.stopPropagation(); // the rest of the view changes the scale
-  playScale();
+  tapPlay(scalePlay);
 });
 
 views.scales.addEventListener('click', event => {
@@ -261,7 +380,8 @@ const ARROWS = { ArrowLeft: ['root', -1], ArrowRight: ['root', 1], ArrowUp: ['mo
 
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
-    if (intro.classList.contains('is-open')) closeIntro();
+    if (hold?.open) closeChoice();
+    else if (intro.classList.contains('is-open')) closeIntro();
     else if (openSelect) closeSelect();
     else if (composer.classList.contains('is-open')) closeComposer();
     return;
@@ -269,7 +389,7 @@ document.addEventListener('keydown', event => {
   if (state.view !== 'scales' || composer.classList.contains('is-open') || intro.classList.contains('is-open')) return;
   if (event.key === ' ' && event.target === document.body) {
     event.preventDefault();
-    playScale();
+    tapPlay(scalePlay);
     return;
   }
   if (!ARROWS[event.key]) return;
@@ -405,7 +525,7 @@ slot.addEventListener('click', event => {
   if ('add' in target.dataset) {
     openComposer(target);
   } else if ('play' in target.dataset) {
-    togglePlay(target, () => playChord(target.dataset.play.split(' ').map(Number)));
+    tapPlay(target);
   } else if ('remove' in target.dataset) {
     const chords = currentChords();
     chords.splice(chords.findIndex(chord => chord.id === target.dataset.remove), 1);
@@ -492,11 +612,7 @@ function endSwipe(event, cancelled) {
   if (!cancelled && (flung || far)) goToSlot(state.slot + (dx < 0 ? 1 : -1), offset);
   else settleSlot(offset);
   swipe.dragging = false;
-  // A drag that ends over a button must not count as a tap on it. The click (if
-  // any) follows pointerup in the same task, so the guard only lives until then.
-  const swallow = click => click.stopPropagation();
-  window.addEventListener('click', swallow, { capture: true, once: true });
-  setTimeout(() => window.removeEventListener('click', swallow, { capture: true }));
+  swallowClick();
 }
 
 progression.addEventListener('pointerup', event => endSwipe(event, false));
@@ -712,9 +828,7 @@ basedSwitch.addEventListener('click', () => setDraft('based', !draft.based));
 $('close-composer').addEventListener('click', closeComposer);
 
 const composerPlay = $('composer-play');
-composerPlay.addEventListener('click', () => {
-  togglePlay(composerPlay, () => playChord(chordNotes(draftChord()).map(note => note.key)));
-});
+composerPlay.addEventListener('click', () => tapPlay(composerPlay));
 
 addButton.addEventListener('click', () => {
   const chords = currentChords();

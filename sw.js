@@ -1,4 +1,4 @@
-const CACHE = 'piano-scales-v24';
+const CACHE = 'piano-scales-v25';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './music.js', './audio.js', './fonts/inter-latin.woff2', './manifest.webmanifest', './icons/favicon-32.png', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', event => {
