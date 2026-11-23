@@ -212,11 +212,12 @@ function swallowClick() {
 /* ---------- Speaker hold: choose the play style (left chord, right notes) ---------- */
 
 // delay: ms before the choice opens; slop: movement (px) that cancels the hold before
-// that; dead: distance from the centre (px) before a side is picked.
-const HOLD = { delay: 350, slop: 10, dead: 8, margin: 10 };
+// that; dead: distance from the centre (px) before a side is picked; margin: gap (px) between
+// the popover and the press, and between the popover and the screen edges.
+const HOLD = { delay: 350, slop: 10, dead: 5, margin: 5 };
 const choice = $('play-choice');
 const choiceThumb = choice.querySelector('.play-choice-thumb');
-let hold = null; // { pointer, x, y, timer, open, centre, side }
+let hold = null; // { pointer, button, x, y, timer, open, centre, side }
 
 function showSide(side) {
   hold.side = side;
@@ -230,12 +231,15 @@ function openChoice() {
   showSide(state.playStyle);
   void choiceThumb.offsetWidth;
   choiceThumb.style.transition = '';
-  // Centred on the press, kept on screen; the halves split at the popover's centre.
+  // Centred on the speaker (a fingertip rarely lands on its exact middle), its bottom edge
+  // a margin above the press so the finger doesn't cover it; kept on screen. The halves
+  // split at the popover's centre.
+  const rect = hold.button.getBoundingClientRect();
   const halfW = choice.offsetWidth / 2 + HOLD.margin;
-  const halfH = choice.offsetHeight / 2 + HOLD.margin;
-  hold.centre = Math.min(Math.max(hold.x, halfW), innerWidth - halfW);
+  const top = hold.y - HOLD.margin - choice.offsetHeight;
+  hold.centre = Math.min(Math.max(rect.left + rect.width / 2, halfW), innerWidth - halfW);
   choice.style.left = `${hold.centre}px`;
-  choice.style.top = `${Math.min(Math.max(hold.y, halfH), innerHeight - halfH)}px`;
+  choice.style.top = `${Math.min(Math.max(top, HOLD.margin), innerHeight - HOLD.margin - choice.offsetHeight)}px`;
   choice.classList.add('is-open');
   // The progression may be tracking this pointer for a swipe; the hold owns it now.
   if (swipe.pointer === hold.pointer) swipe.pointer = null;
@@ -252,7 +256,7 @@ document.addEventListener('pointerdown', event => {
   const button = event.target.closest?.('.play-button');
   if (!button || hold || !event.isPrimary || event.button !== 0) return;
   hold = {
-    pointer: event.pointerId, x: event.clientX, y: event.clientY,
+    pointer: event.pointerId, button, x: event.clientX, y: event.clientY,
     timer: setTimeout(openChoice, HOLD.delay), open: false, centre: 0, side: null
   };
 });
@@ -876,8 +880,8 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
 }));
 
 // Ask the browser not to evict saved progressions under storage pressure (notably iOS).
-navigator.storage?.persist?.().catch(() => {});
+navigator.storage?.persist?.().catch(() => { });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => { }));
 }

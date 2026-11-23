@@ -396,7 +396,7 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
   right: calc(50% - var(--keyboard-w) / 2 + var(--u) * 4);
 }
 
-/* Held speaker: the saved play style, notes on the left, chord on the right; centred under the thumb. */
+/* Held speaker: the saved play style, chord on the left, notes on the right; centred on the speaker, just above the thumb. */
 .play-choice {
   --pill-pad: calc(var(--nudge) + 1px);
   position: fixed;
@@ -413,7 +413,8 @@ svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; s
   background: var(--pill);
   color: var(--text-strong);
   pointer-events: none;
-  translate: -50% -50%;
+  translate: -50% 0;
+  transform-origin: 50% 100%;
   scale: .95;
   opacity: 0;
   visibility: hidden;
